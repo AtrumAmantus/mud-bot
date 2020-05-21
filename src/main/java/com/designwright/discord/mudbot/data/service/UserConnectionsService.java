@@ -64,16 +64,21 @@ public class UserConnectionsService {
 
     ConnectionInfo addUserConnection(ConnectionInfo connectionInfo) {
         userConnections.addConnection(connectionInfo.getDiscordUser(), connectionInfo.getPrivateChannel());
+
         return userConnections.getConnection(connectionInfo.getDiscordUser());
     }
 
     ConnectionInfo updateUserConnection(ConnectionInfo connectionInfo) {
-        userConnections.getConnection(connectionInfo.getDiscordUser()).setAvatar(connectionInfo.getAvatar());
+        ConnectionInfo userConnectionInfo = userConnections.getConnection(connectionInfo.getDiscordUser());
+        userConnectionInfo.setUser(connectionInfo.getUser());
+        userConnectionInfo.setAvatar(connectionInfo.getAvatar());
+
         return userConnections.getConnection(connectionInfo.getDiscordUser());
     }
 
     ConnectionInfo removeUserConnection(ConnectionInfo connectionInfo) {
         userConnections.removeConnection(connectionInfo.getDiscordUser());
+
         return connectionInfo;
     }
 

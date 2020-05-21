@@ -10,6 +10,8 @@ import com.designwright.discord.mudbot.input.action.ConnectionAction;
 import com.designwright.discord.mudbot.input.action.InvalidAction;
 import com.designwright.discord.mudbot.input.action.SpeechAction;
 import com.designwright.discord.mudbot.input.action.UserAction;
+import com.designwright.discord.mudbot.input.action.avatarmenu.CreateAvatarAction;
+import com.designwright.discord.mudbot.input.action.avatarmenu.SelectAvatarAction;
 import com.designwright.discord.mudbot.input.action.speech.AvatarSpeechAction;
 import com.designwright.discord.mudbot.input.action.speech.UserSpeechAction;
 import com.designwright.discord.mudbot.input.enums.UserType;
@@ -23,6 +25,7 @@ import net.dv8tion.jda.api.events.message.priv.PrivateMessageReceivedEvent;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -97,13 +100,11 @@ public class PrivateMessageRunnableEvent extends AbstractRunnableEvent {
         PrivateMessageReceivedEvent event = messageEvent.getEvent();
         ConnectionAction action = (ConnectionAction) actionable.getAction();
 
-        InternalRequest<ConnectionInfo> connectedUser = internalApi.sendAndReceive(
-                new InternalRequest<>(new ConnectionInfo(event.getAuthor(), null), InternalRequest.Type.READ)
-        );
+        Optional<ConnectionInfo> userConnection = getUserConnectionInfo();
 
         if (ConnectionAction.Action.LOGIN.equals(action.getAction())) {
             // Does user already have an active connection?
-            if (connectedUser.getPayload().isEmpty()) {
+            if (!userConnection.isPresent()) {
                 User user = getOrCreateUser(event.getAuthor().getId());
                 String broadcastMessage = event.getAuthor().getName() + "(" + user.getDiscordId() + ")" + " connected.";
                 log.info(broadcastMessage);
@@ -140,7 +141,7 @@ public class PrivateMessageRunnableEvent extends AbstractRunnableEvent {
                 event.getChannel().sendMessage("You are already connected.").queue();
             }
         } else {
-            if (!connectedUser.getPayload().isEmpty()) {
+            if (userConnection.isPresent()) {
                 String broadcastMessage = event.getAuthor().getName() + " disconnected.";
                 InternalRequest<ConnectionInfo> removeConnRequest = internalApi.sendAndReceive(
                         new InternalRequest<>(
@@ -185,14 +186,42 @@ public class PrivateMessageRunnableEvent extends AbstractRunnableEvent {
 
     void handleAvatarMenuEvent(Actionable actionable) {
         UserAction userAction = actionable.getAction();
+
+        Optional<ConnectionInfo> userConnection = getUserConnectionInfo();
+
+        if (userAction instanceof CreateAvatarAction) {
+            ConnectionInfo connectionInfo = userConnection.get();
+            Avatar avatar = new Avatar();
+            avatar.setName(actionable.getAction().getMessage());
+            avatar.setUser(connectionInfo.getUser());
+
+            InternalRequest<Avatar> createdAvatar = new InternalRequest<>(avatar, InternalRequest.Type.CREATE);
+            if (!InternalRequest.Status.ERROR.equals(createdAvatar.getStatus())) {
+                connectionInfo.setAvatar(createdAvatar.getPayloadFirst());
+                updateConnectionInfo(connectionInfo);
+                log.info(connectionInfo.getAvatar().getName() + " created.");
+                messageEvent.getEvent().getChannel().sendMessage("Welcome, " + connectionInfo.getAvatar().getName() + "!").queue();
+            } else {
+                log.error("Couldn't create avatar");
+                messageEvent.getEvent().getChannel().sendMessage("Couldn't create avatar! sorry!").queue();
+            }
+        } else if (userAction instanceof SelectAvatarAction) {
+
+        } else {
+
+        }
     }
 
     void handleSpeechEvent(Actionable actionable) {
         PrivateMessageReceivedEvent event = messageEvent.getEvent();
         UserAction action = actionable.getAction();
 
-        if (action instanceof AvatarSpeechAction) {
+        Optional<ConnectionInfo> connectionInfo = getUserConnectionInfo();
 
+        if (action instanceof AvatarSpeechAction) {
+            Avatar avatar = connectionInfo.get().getAvatar();
+            String broadcastMessage = avatar.getName() + " says: \"" + action.getMessage() + "\"";
+            internalApi.send(new InternalRequest<>(broadcastMessage, InternalRequest.Type.CREATE));
         } else if (action instanceof UserSpeechAction) {
             String broadcastMessage = event.getAuthor().getName() + " says: \"" + action.getMessage() + "\"";
             internalApi.send(new InternalRequest<>(broadcastMessage, InternalRequest.Type.CREATE));
@@ -209,6 +238,28 @@ public class PrivateMessageRunnableEvent extends AbstractRunnableEvent {
 
         String broadcastMessage = avatar.getName() + " " + action.getMessage();
         internalApi.send(new InternalRequest<>(broadcastMessage, InternalRequest.Type.CREATE));
+    }
+
+    Optional<ConnectionInfo> getUserConnectionInfo() {
+        InternalRequest<ConnectionInfo> connectedUser = internalApi.sendAndReceive(
+                new InternalRequest<>(new ConnectionInfo(messageEvent.getEvent().getAuthor(), null), InternalRequest.Type.READ)
+        );
+
+        Optional<ConnectionInfo> optional;
+
+        if (connectedUser.getPayload().isEmpty()) {
+            optional = Optional.empty();
+        } else {
+            optional = Optional.of(connectedUser.getPayloadFirst());
+        }
+
+        return optional;
+    }
+
+    void updateConnectionInfo(ConnectionInfo connectionInfo) {
+        internalApi.sendAndReceive(
+                new InternalRequest<>(connectionInfo, InternalRequest.Type.UPDATE)
+        );
     }
 
 }
