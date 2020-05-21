@@ -1,0 +1,19 @@
+spring:
+  datasource:
+    url: jdbc:mysql://localhost:3306/discordscape
+    username: root
+    password: rootpassword
+    driver-class-name: com.mysql.jdbc.Driver
+    hikari:
+      maximum-pool-size: 4
+      minimum-idle: 2
+  jpa:
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.MySQLDialect
+logging:
+  level:
+    root: INFO
+    com.designwright: INFO
+  pattern:
+    console: "[%d{yyyy-MM-dd HH:mm:ss}] [%-5p] %-15t|%-4marker|  - %m%n"

@@ -1,0 +1,13 @@
+spring:
+  datasource:
+    url: ${database.url:}
+    username: ${database.username:}
+    password: ${database.password:}
+    driver-class-name: ${database.driver:com.mysql.jdbc.Driver}
+    hikari:
+      maximum-pool-size: ${database.pool.size:4}
+      minimum-idle: ${database.pool.idle:2}
+  jpa:
+    properties:
+      hibernate:
+        dialect: ${database.dialect:org.hibernate.dialect.MySQLDialect}

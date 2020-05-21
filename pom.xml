@@ -1,0 +1,139 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>2.1.6.RELEASE</version>
+        <relativePath/> <!-- lookup parent from repository -->
+    </parent>
+
+    <groupId>com.designwright.discord.bot</groupId>
+    <artifactId>spring-bot</artifactId>
+    <version>0.0.1-SNAPSHOT</version>
+    <packaging>jar</packaging>
+
+    <name>Spring DiscordBot</name>
+    <description>A test SpringBoot bot for Discord servers</description>
+
+    <properties>
+        <java.version>1.8</java.version>
+        <maven.compiler.source>1.8</maven.compiler.source>
+        <maven.compiler.target>1.8</maven.compiler.target>
+
+        <build.directory.location>com/designwright/discord/bot</build.directory.location>
+        <commons-collections4.version>4.3</commons-collections4.version>
+        <h2.version>1.4.199</h2.version>
+        <slf4j.version>1.7.28</slf4j.version>
+        <log4j.version>1.2.17</log4j.version>
+    </properties>
+
+    <dependencies>
+        <!-- SpringBoot -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-jpa</artifactId>
+        </dependency>
+        <!-- Discord -->
+        <dependency>
+            <groupId>net.dv8tion</groupId>
+            <artifactId>JDA</artifactId>
+            <version>4.1.1_150</version>
+        </dependency>
+        <!-- Common Libs -->
+        <dependency>
+            <groupId>org.apache.commons</groupId>
+            <artifactId>commons-lang3</artifactId>
+            <version>3.9</version>
+        </dependency>
+        <!-- Utility -->
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+            <version>2.9.9</version>
+        </dependency>
+        <!-- Compile Time Libs -->
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <version>1.18.8</version>
+            <scope>provided</scope>
+        </dependency>
+        <!-- Testing -->
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <version>5.5.2</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <directory>${user.home}/dev/java/builds/${build.directory.location}/${project.artifactId}</directory>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <configuration>
+                    <source>1.8</source>
+                    <target>1.8</target>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+                <configuration>
+                    <layout>ZIP</layout>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+
+    <profiles>
+        <profile>
+            <id>local</id>
+            <activation>
+                <activeByDefault>true</activeByDefault>
+            </activation>
+            <properties>
+                <active.spring.profile>local</active.spring.profile>
+            </properties>
+            <dependencies>
+                <dependency>
+                    <groupId>mysql</groupId>
+                    <artifactId>mysql-connector-java</artifactId>
+                    <version>8.0.18</version>
+                </dependency>
+            </dependencies>
+        </profile>
+        <profile>
+            <id>deploy</id>
+            <properties>
+                <active.spring.profile>deploy</active.spring.profile>
+            </properties>
+            <dependencies>
+                <dependency>
+                    <groupId>mysql</groupId>
+                    <artifactId>mysql-connector-java</artifactId>
+                    <version>8.0.18</version>
+                </dependency>
+            </dependencies>
+        </profile>
+    </profiles>
+
+    <repositories>
+        <repository>
+            <id>jcenter</id>
+            <name>jcenter-bintray</name>
+            <url>https://jcenter.bintray.com</url>
+        </repository>
+    </repositories>
+
+</project>
