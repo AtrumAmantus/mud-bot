@@ -36,13 +36,13 @@ public class UserConnections {
         return connectionMap.containsKey(user);
     }
 
-    public ConnectionStatus addConnection(User user, PrivateChannel privateChannel) {
+    public ConnectionStatus addConnection(ConnectionInfo connectionInfo) {
         ConnectionStatus status;
 
-        if(connectionMap.containsKey(user)) {
+        if(connectionMap.containsKey(connectionInfo.getDiscordUser())) {
             status = ConnectionStatus.EXISTING;
         } else {
-            connectionMap.put(user, new ConnectionInfo(user, privateChannel));
+            connectionMap.put(connectionInfo.getDiscordUser(), connectionInfo);
             updateConnectList();
             status = ConnectionStatus.CONNECTED;
         }

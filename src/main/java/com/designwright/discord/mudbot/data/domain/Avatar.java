@@ -13,4 +13,8 @@ public class Avatar {
     private Gender gender;
     private Long createDate;
 
+    public boolean isValid() {
+        return name != null && gender != null;
+    }
+
 }

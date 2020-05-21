@@ -4,6 +4,7 @@ import com.designwright.discord.mudbot.core.request.InternalApi;
 import com.designwright.discord.mudbot.core.request.InternalRequest;
 import com.designwright.discord.mudbot.data.domain.Avatar;
 import com.designwright.discord.mudbot.data.domain.User;
+import com.designwright.discord.mudbot.data.enums.Gender;
 import com.designwright.discord.mudbot.input.action.Actionable;
 import com.designwright.discord.mudbot.input.action.AvatarMenuAction;
 import com.designwright.discord.mudbot.input.action.ConnectionAction;
@@ -12,6 +13,7 @@ import com.designwright.discord.mudbot.input.action.SpeechAction;
 import com.designwright.discord.mudbot.input.action.UserAction;
 import com.designwright.discord.mudbot.input.action.avatarmenu.CreateAvatarAction;
 import com.designwright.discord.mudbot.input.action.avatarmenu.SelectAvatarAction;
+import com.designwright.discord.mudbot.input.action.avatarmenu.UpdateAvatarAction;
 import com.designwright.discord.mudbot.input.action.speech.AvatarSpeechAction;
 import com.designwright.discord.mudbot.input.action.speech.UserSpeechAction;
 import com.designwright.discord.mudbot.input.enums.UserType;
@@ -30,6 +32,7 @@ import java.util.stream.Collectors;
 
 @Slf4j
 @Component
+//TODO: Implement better event handling, using instanceof is clunky.
 public class PrivateMessageRunnableEvent extends AbstractRunnableEvent {
 
     private final MessageParserFactory messageParserFactory;
@@ -188,27 +191,57 @@ public class PrivateMessageRunnableEvent extends AbstractRunnableEvent {
         UserAction userAction = actionable.getAction();
 
         Optional<ConnectionInfo> userConnection = getUserConnectionInfo();
-
-        if (userAction instanceof CreateAvatarAction) {
+        if (userConnection.isPresent()) {
             ConnectionInfo connectionInfo = userConnection.get();
-            Avatar avatar = new Avatar();
-            avatar.setName(actionable.getAction().getMessage());
-            avatar.setUser(connectionInfo.getUser());
 
-            InternalRequest<Avatar> createdAvatar = new InternalRequest<>(avatar, InternalRequest.Type.CREATE);
-            if (!InternalRequest.Status.ERROR.equals(createdAvatar.getStatus())) {
-                connectionInfo.setAvatar(createdAvatar.getPayloadFirst());
-                updateConnectionInfo(connectionInfo);
-                log.info(connectionInfo.getAvatar().getName() + " created.");
-                messageEvent.getEvent().getChannel().sendMessage("Welcome, " + connectionInfo.getAvatar().getName() + "!").queue();
+            if (userAction instanceof CreateAvatarAction) {
+                Avatar avatar = new Avatar();
+                avatar.setName(actionable.getAction().getMessage());
+                avatar.setUser(connectionInfo.getUser());
+                connectionInfo.setAvatar(avatar);
+
+                internalApi.sendAndReceive(
+                        new InternalRequest<>(connectionInfo, InternalRequest.Type.UPDATE)
+                );
+
+                messageEvent.getEvent().getChannel().sendMessage("Is " + avatar.getName() + " (m)ale, (f)emale, or (u)nknown/unspecified?").queue();
+            } else if (userAction instanceof UpdateAvatarAction) {
+                String actionMessage = userAction.getMessage();
+                if (
+                        actionMessage.equalsIgnoreCase("m")
+                                || actionMessage.equalsIgnoreCase("f")
+                                || actionMessage.equalsIgnoreCase("u")
+                ) {
+                    Avatar avatar = connectionInfo.getAvatar();
+                    avatar.setGender(Gender.valueOf(actionMessage.toUpperCase()));
+                    InternalRequest<Avatar> createAvatarResponse = internalApi.sendAndReceive(
+                            new InternalRequest<>(avatar, InternalRequest.Type.CREATE)
+                    );
+                    if (InternalRequest.Status.OK.equals(createAvatarResponse.getStatus())) {
+                        connectionInfo.setAvatar(createAvatarResponse.getPayloadFirst());
+                        updateConnectionInfo(connectionInfo);
+                        log.info(connectionInfo.getAvatar().getName() + " created.");
+                        messageEvent.getEvent().getChannel().sendMessage("Welcome, " + connectionInfo.getAvatar().getName() + "!").queue();
+                    } else {
+                        String failedResponse = createAvatarResponse.getMessage();
+                        if (InternalRequest.Status.ERROR.equals(createAvatarResponse.getStatus())) {
+                            log.error("Couldn't create avatar: " + failedResponse);
+                            messageEvent.getEvent().getChannel().sendMessage("Couldn't create avatar! Sorry!").queue();
+                        } else {
+                            messageEvent.getEvent().getChannel().sendMessage("Couldn't create avatar! " + failedResponse).queue();
+                        }
+                    }
+                } else {
+                    messageEvent.getEvent().getChannel().sendMessage("Invalid choice, must choose (m)ale, (f)emale, or (u)nknown/unspecified").queue();
+                }
+            } else if (userAction instanceof SelectAvatarAction) {
+                // TODO: Avatar selection
             } else {
-                log.error("Couldn't create avatar");
-                messageEvent.getEvent().getChannel().sendMessage("Couldn't create avatar! sorry!").queue();
+                // TODO: Error?
             }
-        } else if (userAction instanceof SelectAvatarAction) {
-
         } else {
-
+            log.error("Connection desync during character creation.");
+            messageEvent.getEvent().getChannel().sendMessage("System desync has occured.").queue();
         }
     }
 
@@ -229,6 +262,7 @@ public class PrivateMessageRunnableEvent extends AbstractRunnableEvent {
     }
 
     void handleNonSpeechEvent(Actionable actionable) {
+        //TODO: Speech is being prepended with null
         PrivateMessageReceivedEvent event = messageEvent.getEvent();
         UserAction action = actionable.getAction();
         InternalRequest<ConnectionInfo> connectedUser = internalApi.sendAndReceive(

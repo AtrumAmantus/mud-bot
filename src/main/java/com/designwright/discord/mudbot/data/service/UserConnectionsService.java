@@ -63,7 +63,7 @@ public class UserConnectionsService {
     }
 
     ConnectionInfo addUserConnection(ConnectionInfo connectionInfo) {
-        userConnections.addConnection(connectionInfo.getDiscordUser(), connectionInfo.getPrivateChannel());
+        userConnections.addConnection(connectionInfo);
 
         return userConnections.getConnection(connectionInfo.getDiscordUser());
     }
