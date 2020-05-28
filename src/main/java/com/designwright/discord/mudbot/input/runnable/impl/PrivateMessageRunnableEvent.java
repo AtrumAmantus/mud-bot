@@ -87,6 +87,7 @@ public class PrivateMessageRunnableEvent extends AbstractRunnableEvent {
         AnimateAction action = (AnimateAction) actionable.getAction();
 
         if (userConnectionInfo.getDiscordUser() != null) {
+            //TODO: Grammar parser
             replyToSender("Sorry, I don't do anything else yet.");
         } else {
             replyToSender("You must login before we can interact! Type '/login'");
