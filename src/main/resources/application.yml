@@ -6,7 +6,7 @@ spring:
       naming:
         physical-strategy: com.designwright.discord.mudbot.data.persistence.DataPhysicalNamingStrategy
 discord:
-  api-token: ${discord.api.token:}
+  api-token: NjMwMjEwNDg2NzEzMDU3Mjgy.XsXaig._9SfAJw0apRtXG7rc9m0Xw0odeM
 logging:
   level:
     root: ERROR

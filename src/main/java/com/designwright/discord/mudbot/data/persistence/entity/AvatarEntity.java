@@ -38,11 +38,12 @@ public class AvatarEntity implements IdentifiableEntity<Long> {
     @PrePersist
     public void onCreate() {
         this.createDate = System.currentTimeMillis();
-        this.lastLoginDate = System.currentTimeMillis();
+        onUpdate();
     }
 
     @PreUpdate
     public void onUpdate() {
+        name = name.toLowerCase();
         this.lastLoginDate = System.currentTimeMillis();
     }
 

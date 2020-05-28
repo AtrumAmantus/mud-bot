@@ -26,6 +26,10 @@ public class InternalRequest<T> {
         ERROR
     }
 
+    public boolean hasError() {
+        return !Status.OK.equals(status);
+    }
+
     public T getPayloadFirst() {
         return payload.get(0);
     }

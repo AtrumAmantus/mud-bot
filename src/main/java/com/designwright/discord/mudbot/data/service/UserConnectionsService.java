@@ -69,9 +69,8 @@ public class UserConnectionsService {
     }
 
     ConnectionInfo updateUserConnection(ConnectionInfo connectionInfo) {
-        ConnectionInfo userConnectionInfo = userConnections.getConnection(connectionInfo.getDiscordUser());
-        userConnectionInfo.setUser(connectionInfo.getUser());
-        userConnectionInfo.setAvatar(connectionInfo.getAvatar());
+        userConnections.removeConnection(connectionInfo.getDiscordUser());
+        userConnections.addConnection(connectionInfo);
 
         return userConnections.getConnection(connectionInfo.getDiscordUser());
     }

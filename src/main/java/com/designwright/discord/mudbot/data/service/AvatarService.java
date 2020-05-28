@@ -28,9 +28,13 @@ public class AvatarService {
         List<Avatar> avatars = new ArrayList<>();
 
         event.getPayload().forEach(avatar -> {
-            if (avatar.getUser().getDiscordId() != null) {
+            if (avatar.getUser() != null && avatar.getUser().getDiscordId() != null) {
                 avatars.addAll(
                         findAllByDiscordId(avatar.getUser().getDiscordId())
+                );
+            } else if (avatar.getName() != null) {
+                avatars.addAll(
+                        getAvatarByName(avatar.getName())
                 );
             } else {
                 throw new InternalRequestException("Invalid data used for lookup", avatar);
@@ -77,6 +81,12 @@ public class AvatarService {
         return response;
     }
 
+    private List<Avatar> getAvatarByName(String name) {
+        List<AvatarEntity> entities = avatarRepository.getByName(name);
+
+        return MappingUtils.convertToType(entities, Avatar.class);
+    }
+
     private List<Avatar> findAllByDiscordId(String id) {
         List<AvatarEntity> entities = avatarRepository.findAllByUser_DiscordId(id);
 
@@ -87,7 +97,7 @@ public class AvatarService {
         List<AvatarEntity> avatarsToSave = MappingUtils.convertToType(avatars, AvatarEntity.class);
 
         avatarsToSave.forEach(avatarEntity -> {
-            if (avatarRepository.existsByName(avatarEntity.getName())) {
+            if (avatarRepository.existsByName(avatarEntity.getName().toLowerCase())) {
                 throw new PersistenceException("Avatar with name already exists");
             }
         });

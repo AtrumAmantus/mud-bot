@@ -1,41 +1,30 @@
 package com.designwright.discord.mudbot.input.runnable.impl;
 
+import com.designwright.discord.mudbot.core.dialogue.impl.AvatarCreationDialogueSequence;
+import com.designwright.discord.mudbot.core.exception.PersistenceException;
 import com.designwright.discord.mudbot.core.request.InternalApi;
 import com.designwright.discord.mudbot.core.request.InternalRequest;
-import com.designwright.discord.mudbot.data.domain.Avatar;
 import com.designwright.discord.mudbot.data.domain.User;
-import com.designwright.discord.mudbot.data.enums.Gender;
 import com.designwright.discord.mudbot.input.action.Actionable;
-import com.designwright.discord.mudbot.input.action.AvatarMenuAction;
-import com.designwright.discord.mudbot.input.action.ConnectionAction;
+import com.designwright.discord.mudbot.input.action.AnimateAction;
+import com.designwright.discord.mudbot.input.action.CommandAction;
 import com.designwright.discord.mudbot.input.action.InvalidAction;
-import com.designwright.discord.mudbot.input.action.SpeechAction;
 import com.designwright.discord.mudbot.input.action.UserAction;
-import com.designwright.discord.mudbot.input.action.avatarmenu.CreateAvatarAction;
-import com.designwright.discord.mudbot.input.action.avatarmenu.SelectAvatarAction;
-import com.designwright.discord.mudbot.input.action.avatarmenu.UpdateAvatarAction;
-import com.designwright.discord.mudbot.input.action.speech.AvatarSpeechAction;
-import com.designwright.discord.mudbot.input.action.speech.UserSpeechAction;
-import com.designwright.discord.mudbot.input.enums.UserType;
 import com.designwright.discord.mudbot.input.message.MessageEvent;
-import com.designwright.discord.mudbot.input.runnable.AbstractRunnableEvent;
 import com.designwright.discord.mudbot.input.message.MessageParser;
 import com.designwright.discord.mudbot.input.message.MessageParserFactory;
+import com.designwright.discord.mudbot.input.runnable.AbstractRunnableEvent;
 import com.designwright.discord.mudbot.net.ConnectionInfo;
 import lombok.extern.slf4j.Slf4j;
 import net.dv8tion.jda.api.events.message.priv.PrivateMessageReceivedEvent;
 import org.springframework.stereotype.Component;
 
-import java.util.List;
-import java.util.Optional;
-import java.util.stream.Collectors;
-
 @Slf4j
 @Component
-//TODO: Implement better event handling, using instanceof is clunky.
 public class PrivateMessageRunnableEvent extends AbstractRunnableEvent {
 
     private final MessageParserFactory messageParserFactory;
+    private ConnectionInfo userConnectionInfo;
 
     public PrivateMessageRunnableEvent(
             InternalApi internalApi,
@@ -46,127 +35,165 @@ public class PrivateMessageRunnableEvent extends AbstractRunnableEvent {
         this.messageParserFactory = messageParserFactory;
     }
 
-    @Override
-    public void run() {
+    protected void runEvent() {
         PrivateMessageReceivedEvent event = messageEvent.getEvent();
         Actionable actionable;
-        net.dv8tion.jda.api.entities.User user = event.getAuthor();
 
-        if (!user.isBot()) {
-            UserType userType = getUserType(user);
-            MessageParser parser = messageParserFactory.createParser(event, userType);
+        loadUserConnectionInformation(event.getAuthor());
+
+        if (!event.getAuthor().isBot()) {
+            MessageParser parser = messageParserFactory.createParser(event);
             actionable = parser.parse();
 
-            UserAction action = actionable.getAction();
-
-            if (action instanceof ConnectionAction) {
-                handleConnectionEvent(actionable);
-            } else if (action instanceof AvatarMenuAction) {
-                handleAvatarMenuEvent(actionable);
-            } else if (action instanceof SpeechAction) {
-                handleSpeechEvent(actionable);
-            } else if (action instanceof InvalidAction) {
-                event.getChannel().sendMessage(action.getMessage()).queue();
+            if (userConnectionInfo.getUser() == null) {
+                handleAction(actionable, false);
+            } else if (userConnectionInfo.getAvatar() == null || !userConnectionInfo.getAvatar().isValid()) {
+                handleAvatarMenuDialogue(actionable);
             } else {
-                handleNonSpeechEvent(actionable);
+                handleAction(actionable, true);
             }
         }
     }
 
-    UserType getUserType(net.dv8tion.jda.api.entities.User user) {
-        UserType userType;
-
-        InternalRequest<ConnectionInfo> connectedUser = internalApi.sendAndReceive(
-                new InternalRequest<>(new ConnectionInfo(user, null), InternalRequest.Type.READ)
+    void loadUserConnectionInformation(net.dv8tion.jda.api.entities.User discordUser) {
+        InternalRequest<ConnectionInfo> userConnectionResponse = internalApi.sendAndReceive(
+                new InternalRequest<>(new ConnectionInfo(discordUser, null, null), InternalRequest.Type.READ)
         );
 
-        if (!connectedUser.getPayload().isEmpty()) {
-            Avatar avatar = connectedUser.getPayloadFirst().getAvatar();
-
-            if (avatar != null) {
-                if (avatar.isAdmin()) {
-                    userType = UserType.ADMIN;
-                } else {
-                    userType = UserType.AVATAR;
-                }
-            } else {
-                userType = UserType.UNKNOWN;
-            }
+        if (userConnectionResponse.getPayload().isEmpty()) {
+            userConnectionInfo = new ConnectionInfo(null, null, null);
         } else {
-            userType = UserType.ANONYMOUS;
+            userConnectionInfo = userConnectionResponse.getPayloadFirst();
         }
-
-        return userType;
     }
 
-    void handleConnectionEvent(Actionable actionable) {
-        PrivateMessageReceivedEvent event = messageEvent.getEvent();
-        ConnectionAction action = (ConnectionAction) actionable.getAction();
+    void handleAction(Actionable actionable, boolean isLoggedIn) {
+        UserAction action = actionable.getAction();
 
-        Optional<ConnectionInfo> userConnection = getUserConnectionInfo();
-
-        if (ConnectionAction.Action.LOGIN.equals(action.getAction())) {
-            // Does user already have an active connection?
-            if (!userConnection.isPresent()) {
-                User user = getOrCreateUser(event.getAuthor().getId());
-                String broadcastMessage = event.getAuthor().getName() + "(" + user.getDiscordId() + ")" + " connected.";
-                log.info(broadcastMessage);
-                internalApi.send(new InternalRequest<>(broadcastMessage, InternalRequest.Type.CREATE));
-
-                ConnectionInfo userConnectionInfo = new ConnectionInfo(event.getAuthor(), event.getChannel());
-                userConnectionInfo.setUser(user);
-
-                InternalRequest<ConnectionInfo> addConnRequest = internalApi.sendAndReceive(
-                        new InternalRequest<>(userConnectionInfo, InternalRequest.Type.CREATE)
-                );
-
-                if (!InternalRequest.Status.ERROR.equals(addConnRequest.getStatus())) {
-                    event.getChannel().sendMessage("You have connected, please select your character (use <avatar>).").queue();
-
-                    Avatar findAvatar = new Avatar();
-                    findAvatar.setUser(user);
-
-                    List<Avatar> userAvatars = internalApi.sendAndReceive(
-                            new InternalRequest<>(findAvatar, InternalRequest.Type.READ)
-                    ).getPayload();
-
-                    String userMessage = userAvatars.stream().map(Avatar::getName).collect(Collectors.joining("\n"));
-                    if (userMessage.isEmpty()) {
-                        userMessage = "No avatars exist.";
-                    }
-                    event.getChannel().sendMessage(userMessage).queue();
-                    event.getChannel().sendMessage("(type 'create <avatar>' to create a new avatar)").queue();
-                } else {
-                    event.getChannel().sendMessage(addConnRequest.getMessage()).queue();
-                }
+        if (action instanceof AnimateAction) {
+            if (isLoggedIn) {
+                handleAnimateAction(actionable);
             } else {
-                log.warn("Unexpected login de-sync for: " + event.getAuthor());
-                event.getChannel().sendMessage("You are already connected.").queue();
+                replyToSender("Hi =), if you'd like to interact, please '/login'!");
             }
+        } else if (action instanceof CommandAction) {
+            handleCommandAction(actionable);
         } else {
-            if (userConnection.isPresent()) {
-                String broadcastMessage = event.getAuthor().getName() + " disconnected.";
-                InternalRequest<ConnectionInfo> removeConnRequest = internalApi.sendAndReceive(
-                        new InternalRequest<>(
-                                new ConnectionInfo(event.getAuthor(), event.getChannel()),
-                                InternalRequest.Type.DELETE
-                        )
-                );
-                if (!InternalRequest.Status.ERROR.equals(removeConnRequest.getStatus())) {
-                    internalApi.send(new InternalRequest<>(broadcastMessage, InternalRequest.Type.CREATE));
-                    log.info(broadcastMessage);
-                    event.getChannel().sendMessage("Goodbye.").queue();
-                }
+            replyToSender(((InvalidAction) action).getMessage());
+        }
+    }
+
+    void handleAnimateAction(Actionable actionable) {
+        AnimateAction action = (AnimateAction) actionable.getAction();
+
+        if (userConnectionInfo.getDiscordUser() != null) {
+            replyToSender("Sorry, I don't do anything else yet.");
+        } else {
+            replyToSender("You must login before we can interact! Type '/login'");
+        }
+    }
+
+    void handleCommandAction(Actionable actionable) {
+        CommandAction action = (CommandAction) actionable.getAction();
+
+        if ("logout".equalsIgnoreCase(action.getCommandName())) {
+            handleLogoutAction();
+        } else if ("login".equalsIgnoreCase(action.getCommandName())) {
+            handleLoginAction();
+        } else {
+            if (userConnectionInfo.getDiscordUser() != null) {
+                replyToSender("'/" + action.getCommandName() + "' is not a valid command. Are you hacking?");
             } else {
-                log.warn("Unexpected logout de-sync for: " + event.getAuthor());
-                event.getChannel().sendMessage("You are not logged in.").queue();
+                replyToSender("I can't interact with you yet, you need to '/login'!");
             }
         }
     }
 
-    User getOrCreateUser(String discordId) {
+    void handleLogoutAction() {
+        if (userConnectionInfo.getDiscordUser() != null) {
+            InternalRequest<ConnectionInfo> connectionInfoResponse = internalApi.sendAndReceive(
+                    new InternalRequest<>(
+                            new ConnectionInfo(messageEvent.getEvent().getAuthor(), null, null),
+                            InternalRequest.Type.DELETE
+                    )
+            );
+            if (!connectionInfoResponse.hasError()) {
+                log.info(userConnectionInfo.getDiscordUser().getName() + "(" + userConnectionInfo.getDiscordUser().getId() + ") logged out.");
+                replyToSender("Goodbye!");
+            } else {
+                log.error("Issue disconnecting user", new PersistenceException(connectionInfoResponse.getMessage()));
+                replyToSender("Can't log you out, you're stuck here!");
+            }
+        } else {
+            replyToSender("You're not logged in! How can I log you out?!");
+        }
+    }
+
+    void handleLoginAction() {
+        if (userConnectionInfo.getDiscordUser() == null) {
+            try {
+                createUserConnectionInformation();
+
+                log.info(userConnectionInfo.getDiscordUser().getName() + "(" + userConnectionInfo.getDiscordUser().getId() + ") logged in.");
+                replyToSender("Welcome, " + userConnectionInfo.getDiscordUser().getName() + "!");
+
+                AvatarCreationDialogueSequence sequence = new AvatarCreationDialogueSequence(internalApi, userConnectionInfo);
+                sequence.next();
+            } catch (PersistenceException e) {
+                log.error("Failed to persist user", e);
+                replyToSender("Couldn't log you in! =(");
+            }
+        } else {
+            replyToSender("Uh... we already did that...");
+        }
+    }
+
+    void handleAvatarMenuDialogue(Actionable actionable) {
+        UserAction action = actionable.getAction();
+
+        if (action instanceof CommandAction) {
+            CommandAction commandAction = (CommandAction) action;
+            if (commandAction.getCommandName().equalsIgnoreCase("logout")) {
+                handleLogoutAction();
+            } else {
+                replyToSender("You can't execute commands while picking an avatar (except logout), naughty!");
+            }
+        } else if (action instanceof AnimateAction) {
+            String message = ((AnimateAction)action).getPhrase();
+
+            AvatarCreationDialogueSequence sequence = new AvatarCreationDialogueSequence(internalApi, userConnectionInfo);
+            sequence.query(message);
+        } else {
+            log.error("Invalid action type in avatar menu");
+            log.error(action.toString());
+            replyToSender("I don't know what you are trying to do.");
+        }
+    }
+
+    void createUserConnectionInformation() {
+        User user = getOrCreateUser(messageEvent.getEvent().getAuthor());
+
+        InternalRequest<ConnectionInfo> connectionInfoResponse = internalApi.sendAndReceive(
+                new InternalRequest<>(
+                        new ConnectionInfo(
+                                messageEvent.getEvent().getAuthor(),
+                                messageEvent.getEvent().getChannel(),
+                                user
+                        ),
+                        InternalRequest.Type.CREATE
+                )
+        );
+
+        if (connectionInfoResponse.hasError()) {
+            throw new PersistenceException(connectionInfoResponse.getMessage());
+        }
+
+        userConnectionInfo = connectionInfoResponse.getPayloadFirst();
+    }
+
+    User getOrCreateUser(net.dv8tion.jda.api.entities.User discordUser) {
         User userLookup = new User();
-        userLookup.setDiscordId(discordId);
+        userLookup.setDiscordId(discordUser.getId());
 
         InternalRequest<User> user = internalApi.sendAndReceive(
                 new InternalRequest<>(userLookup, InternalRequest.Type.READ)
@@ -187,113 +214,8 @@ public class PrivateMessageRunnableEvent extends AbstractRunnableEvent {
         return user.getPayloadFirst();
     }
 
-    void handleAvatarMenuEvent(Actionable actionable) {
-        UserAction userAction = actionable.getAction();
-
-        Optional<ConnectionInfo> userConnection = getUserConnectionInfo();
-        if (userConnection.isPresent()) {
-            ConnectionInfo connectionInfo = userConnection.get();
-
-            if (userAction instanceof CreateAvatarAction) {
-                Avatar avatar = new Avatar();
-                avatar.setName(actionable.getAction().getMessage());
-                avatar.setUser(connectionInfo.getUser());
-                connectionInfo.setAvatar(avatar);
-
-                internalApi.sendAndReceive(
-                        new InternalRequest<>(connectionInfo, InternalRequest.Type.UPDATE)
-                );
-
-                messageEvent.getEvent().getChannel().sendMessage("Is " + avatar.getName() + " (m)ale, (f)emale, or (u)nknown/unspecified?").queue();
-            } else if (userAction instanceof UpdateAvatarAction) {
-                String actionMessage = userAction.getMessage();
-                if (
-                        actionMessage.equalsIgnoreCase("m")
-                                || actionMessage.equalsIgnoreCase("f")
-                                || actionMessage.equalsIgnoreCase("u")
-                ) {
-                    Avatar avatar = connectionInfo.getAvatar();
-                    avatar.setGender(Gender.valueOf(actionMessage.toUpperCase()));
-                    InternalRequest<Avatar> createAvatarResponse = internalApi.sendAndReceive(
-                            new InternalRequest<>(avatar, InternalRequest.Type.CREATE)
-                    );
-                    if (InternalRequest.Status.OK.equals(createAvatarResponse.getStatus())) {
-                        connectionInfo.setAvatar(createAvatarResponse.getPayloadFirst());
-                        updateConnectionInfo(connectionInfo);
-                        log.info(connectionInfo.getAvatar().getName() + " created.");
-                        messageEvent.getEvent().getChannel().sendMessage("Welcome, " + connectionInfo.getAvatar().getName() + "!").queue();
-                    } else {
-                        String failedResponse = createAvatarResponse.getMessage();
-                        if (InternalRequest.Status.ERROR.equals(createAvatarResponse.getStatus())) {
-                            log.error("Couldn't create avatar: " + failedResponse);
-                            messageEvent.getEvent().getChannel().sendMessage("Couldn't create avatar! Sorry!").queue();
-                        } else {
-                            messageEvent.getEvent().getChannel().sendMessage("Couldn't create avatar! " + failedResponse).queue();
-                        }
-                    }
-                } else {
-                    messageEvent.getEvent().getChannel().sendMessage("Invalid choice, must choose (m)ale, (f)emale, or (u)nknown/unspecified").queue();
-                }
-            } else if (userAction instanceof SelectAvatarAction) {
-                // TODO: Avatar selection
-            } else {
-                // TODO: Error?
-            }
-        } else {
-            log.error("Connection desync during character creation.");
-            messageEvent.getEvent().getChannel().sendMessage("System desync has occured.").queue();
-        }
-    }
-
-    void handleSpeechEvent(Actionable actionable) {
-        PrivateMessageReceivedEvent event = messageEvent.getEvent();
-        UserAction action = actionable.getAction();
-
-        Optional<ConnectionInfo> connectionInfo = getUserConnectionInfo();
-
-        if (action instanceof AvatarSpeechAction) {
-            Avatar avatar = connectionInfo.get().getAvatar();
-            String broadcastMessage = avatar.getName() + " says: \"" + action.getMessage() + "\"";
-            internalApi.send(new InternalRequest<>(broadcastMessage, InternalRequest.Type.CREATE));
-        } else if (action instanceof UserSpeechAction) {
-            String broadcastMessage = event.getAuthor().getName() + " says: \"" + action.getMessage() + "\"";
-            internalApi.send(new InternalRequest<>(broadcastMessage, InternalRequest.Type.CREATE));
-        }
-    }
-
-    void handleNonSpeechEvent(Actionable actionable) {
-        //TODO: Speech is being prepended with null
-        PrivateMessageReceivedEvent event = messageEvent.getEvent();
-        UserAction action = actionable.getAction();
-        InternalRequest<ConnectionInfo> connectedUser = internalApi.sendAndReceive(
-                new InternalRequest<>(new ConnectionInfo(event.getAuthor(), null), InternalRequest.Type.READ)
-        );
-        Avatar avatar = connectedUser.getPayloadFirst().getAvatar();
-
-        String broadcastMessage = avatar.getName() + " " + action.getMessage();
-        internalApi.send(new InternalRequest<>(broadcastMessage, InternalRequest.Type.CREATE));
-    }
-
-    Optional<ConnectionInfo> getUserConnectionInfo() {
-        InternalRequest<ConnectionInfo> connectedUser = internalApi.sendAndReceive(
-                new InternalRequest<>(new ConnectionInfo(messageEvent.getEvent().getAuthor(), null), InternalRequest.Type.READ)
-        );
-
-        Optional<ConnectionInfo> optional;
-
-        if (connectedUser.getPayload().isEmpty()) {
-            optional = Optional.empty();
-        } else {
-            optional = Optional.of(connectedUser.getPayloadFirst());
-        }
-
-        return optional;
-    }
-
-    void updateConnectionInfo(ConnectionInfo connectionInfo) {
-        internalApi.sendAndReceive(
-                new InternalRequest<>(connectionInfo, InternalRequest.Type.UPDATE)
-        );
+    void replyToSender(String message) {
+        messageEvent.getEvent().getChannel().sendMessage(message).queue();
     }
 
 }
